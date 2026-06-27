@@ -28,7 +28,7 @@ async def grade(assignment_id: str = Form(...), student_name: str = Form(...), f
         # 2. OCR (Using Engine 1 for speed)
         image_content = await file.read()
         url = "https://api.ocr.space/parse/image"
-        payload = {"apikey": OCR_SPACE_KEY, "language": "eng", "OCREngine": "1"}
+        payload = {"apikey": OCR_SPACE_KEY, "language": "eng", "OCREngine": "2"}
         files = {'file': ('image.jpg', image_content, 'image/jpeg')}
         
         response = requests.post(url, data=payload, files=files, timeout=15)
