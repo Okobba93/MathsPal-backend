@@ -67,4 +67,40 @@ async def grade(short_code: str = Form(...), student_name: str = Form(...), file
         if not res.data: 
             return {"status": "error", "error": "Invalid Class Code"}
         
-        ma
+        master_key = res.data[0]['master_key']
+        assignment_id = res.data[0]['id']
+
+        # Process every photo uploaded
+        all_text = ""
+        for file in files:
+            content = await file.read()
+            f = {'file': ('img.jpg', content, 'image/jpeg')}
+            ocr_res = requests.post("https://api.ocr.space/parse/image", data={"apikey": OCR_KEY, "OCREngine": "2"}, files=f, timeout=25).json()
+            if ocr_res.get("OCRExitCode") == 1: 
+                all_text += " " + ocr_res["ParsedResults"][0]["ParsedText"]
+
+        # Grade every question in the Master Key
+        final_results = []
+        correct_count = 0
+        for q_num, correct_val in master_key.items():
+            # If the correct answer is found anywhere in the page text
+            match = str(correct_val).strip().lower() in all_text.lower()
+            if match: 
+                correct_count += 1
+            final_results.append({"q": q_num, "status": "correct" if match else "incorrect"})
+        
+        # Save the result to the submissions table
+        supabase.table("submissions").insert({
+            "assignment_id": assignment_id, 
+            "student_name": student_name, 
+            "score": correct_count, 
+            "results_json": final_results
+        }).execute()
+        
+        return {
+            "status": "success", 
+            "results": final_results, 
+            "score": f"{correct_count}/{len(master_key)}"
+        }
+    except Exception as e: 
+        return {"status": "error", "error": str(e)}
