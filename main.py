@@ -5,28 +5,35 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import List
 
 app = FastAPI()
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 OCR_KEY = os.getenv("OCR_SPACE_KEY")
 S_URL = os.getenv("SUPABASE_URL")
 S_KEY = os.getenv("SUPABASE_KEY")
 supabase: Client = create_client(S_URL, S_KEY)
 
-# --- NEW: LOGIN BRIDGE ---
+@app.post("/auth-signup")
+async def signup(email: str = Form(...), password: str = Form(...), name: str = Form(...)):
+    try:
+        # We store the name in the user's metadata inside Supabase
+        res = supabase.auth.sign_up({
+            "email": email, 
+            "password": password,
+            "options": {"data": {"full_name": name}}
+        })
+        return {"status": "success"}
+    except Exception as e: return {"status": "error", "error": str(e)}
+
 @app.post("/auth-login")
 async def login(email: str = Form(...), password: str = Form(...)):
     try:
         res = supabase.auth.sign_in_with_password({"email": email, "password": password})
-        return {"status": "success", "session": res.session.access_token}
+        # We send the name back so the dashboard can show it
+        user_name = res.user.user_metadata.get("full_name", "Professor")
+        return {"status": "success", "session": res.session.access_token, "name": user_name}
     except Exception as e: return {"status": "error", "error": str(e)}
 
-# --- NEW: SIGNUP BRIDGE ---
-@app.post("/auth-signup")
-async def signup(email: str = Form(...), password: str = Form(...)):
-    try:
-        res = supabase.auth.sign_up({"email": email, "password": password})
-        return {"status": "success", "msg": "Check your email for confirmation!"}
-    except Exception as e: return {"status": "error", "error": str(e)}
+# (Keep all other functions: get_assignments, get_submissions, create-assignment, grade, home exactly the same)
 
 @app.get("/assignments")
 async def get_assignments():
@@ -53,6 +60,7 @@ async def grade(short_code: str = Form(...), student_name: str = Form(...), file
         res = supabase.table("assignments").select("*").eq("short_code", short_code.strip().upper()).execute()
         if not res.data: return {"status": "error", "error": "Invalid Code"}
         master_key = res.data[0]['master_key']
+        assignment_id = res.data[0]['id']
         all_text = ""
         for file in files:
             content = await file.read()
@@ -65,9 +73,6 @@ async def grade(short_code: str = Form(...), student_name: str = Form(...), file
             match = str(ans).strip().lower() in all_text.lower()
             if match: correct_count += 1
             final_results.append({"q": q, "status": "correct" if match else "incorrect"})
-        supabase.table("submissions").insert({"assignment_id": res.data[0]['id'], "student_name": student_name, "score": correct_count, "results_json": final_results}).execute()
+        supabase.table("submissions").insert({"assignment_id": assignment_id, "student_name": student_name, "score": correct_count, "results_json": final_results}).execute()
         return {"status": "success", "results": final_results, "score": f"{correct_count}/{len(master_key)}"}
     except Exception as e: return {"status": "error", "error": str(e)}
-
-@app.get("/")
-def home(): return {"status": "MathsPal Brain Awake"}
